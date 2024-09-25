@@ -24,3 +24,6 @@ megahal-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Ignore the Elixir LS cache
+.elixir_ls/
