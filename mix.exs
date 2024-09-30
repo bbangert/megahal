@@ -28,7 +28,7 @@ defmodule Megahal.MixProject do
   defp deps do
     [
       {:typed_struct, "~> 0.3.0"},
-      {:sooth, "~> 0.4.0"},
+      {:sooth, "~> 0.4.1"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
 
       # Dev/test dependencies

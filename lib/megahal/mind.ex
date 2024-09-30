@@ -30,10 +30,10 @@ defmodule Megahal.Mind do
     field(:brain, map())
   end
 
-  @spec new() :: Mind.t()
   @doc """
   Create a new MegaHAL mind with default values.
   """
+  @spec new() :: Mind.t()
   def new() do
     mind = %Mind{
       seed: Predictor.new(0),
@@ -59,11 +59,11 @@ defmodule Megahal.Mind do
     end)
   end
 
-  @spec train_on_file(Mind.t(), String.t()) :: Mind.t()
   @doc """
   Train a MegaHAL mind on a file of text. The file should be a UTF-8 encoded
   text file with one sentence per line.
   """
+  @spec train_on_file(Mind.t(), String.t()) :: Mind.t()
   def train_on_file(mind, filename) do
     filename
     |> File.stream!([:trim_bom, encoding: :utf8])
@@ -71,15 +71,14 @@ defmodule Megahal.Mind do
     |> Enum.reduce(mind, &train(&2, &1))
   end
 
-  @spec save(Mind.t(), String.t()) :: :ok
   @doc """
   Save the MegaHAL mind to a file.
   """
+  @spec save(Mind.t(), String.t()) :: :ok
   def save(mind, filename) do
     File.write!(filename, :erlang.term_to_binary(mind), [:compressed])
   end
 
-  @spec load(String.t()) :: {:ok, Mind.t()} | {:error, any()}
   @doc """
   Load the MegaHAL mind from a file.
 
@@ -87,6 +86,7 @@ defmodule Megahal.Mind do
 
     * `filename` - The name of the file to load the MegaHAL mind from.
   """
+  @spec load(String.t()) :: {:ok, Mind.t()} | {:error, any()}
   def load(filename) do
     with {:ok, file} <- File.open(filename, [:read, :binary, :compressed]) do
       mind = :erlang.binary_to_term(IO.binread(file, :eof))
@@ -95,10 +95,16 @@ defmodule Megahal.Mind do
     end
   end
 
-  @spec reply(Megahal.Mind.t(), String.t()) :: {Megahal.Mind.t(), nil | String.t()}
+  @doc """
+  Train the MegaHAL mind on a line of text.
+  """
+  @spec train(Mind.t(), String.t()) :: Mind.t()
+  def train(mind, line), do: line |> String.trim() |> decompose() |> learn(mind)
+
   @doc """
   Generate a reply based on the MegaHAL mind's training.
   """
+  @spec reply(Megahal.Mind.t(), String.t()) :: {Megahal.Mind.t(), nil | String.t()}
   def reply(mind, line) do
     {_puncs, norms, _words} = decompose(String.trim(line))
 
@@ -112,30 +118,22 @@ defmodule Megahal.Mind do
     {mind, utterances} = generate_utterances(mind, keyword_symbols, [], 10)
 
     utterances
-    |> Enum.reject(&(&1 == input_symbols))
-    |> Enum.reject(&is_nil/1)
+    |> Enum.reject(&(&1 == input_symbols or is_nil(&1)))
     |> then(&best_utterance(mind, &1, keyword_symbols))
   end
 
   @spec best_utterance(Mind.t(), [String.t()], [String.t()]) :: {Mind.t(), String.t() | nil}
-  @doc """
-  Find the best utterance from a list of utterances based on the training of
-  the MegaHAL mind and keyword symbols.
-
-  Serves as the entry point for the recursive best_utterance function with an
-  initial reply of nil.
-  """
-  def best_utterance(mind, utterances, keyword_symbols),
+  defp best_utterance(mind, utterances, keyword_symbols),
     do: best_utterance(mind, utterances, keyword_symbols, nil)
 
-  @spec best_utterance(Mind.t(), [String.t()], [String.t()], String.t() | nil) ::
-          {Mind.t(), String.t() | nil}
-  def best_utterance(mind, [], _keyword_symbols, reply), do: {mind, reply}
+  @spec best_utterance(Mind.t(), [], any(), String.t() | nil) :: {Mind.t(), String.t() | nil}
+  defp best_utterance(mind, [], _keyword_symbols, reply), do: {mind, reply}
 
-  def best_utterance(mind, utterances, keyword_symbols, reply) do
+  defp best_utterance(mind, utterances, keyword_symbols, reply) do
     with {:ok, mind, utterance} <- select_utterance(mind, utterances, keyword_symbols) do
       # Note that we can't collapse this any further because `best_utterance` needs the utterance
       case rewrite(mind, utterance) do
+        # If the rewrite fails, remove the utterance from the list and try again
         {mind, nil} ->
           best_utterance(
             mind,
@@ -152,7 +150,7 @@ defmodule Megahal.Mind do
     end
   end
 
-  def select_utterance(mind, utterances, keyword_symbols) do
+  defp select_utterance(mind, utterances, keyword_symbols) do
     {mind, utterance, _} =
       Enum.reduce(utterances, {mind, nil, -1}, fn utterance, {mind, best_utterance, best_score} ->
         {mind, score} = calculate_score(mind, utterance, keyword_symbols)
@@ -169,7 +167,7 @@ defmodule Megahal.Mind do
     end
   end
 
-  def calculate_score(mind, utterance, keyword_symbols) do
+  defp calculate_score(mind, utterance, keyword_symbols) do
     {mind, score} = calculate_model_score(mind, mind.fore, utterance, keyword_symbols, 0, [1, 1])
     reversed = Enum.reverse(utterance)
 
@@ -198,11 +196,8 @@ defmodule Megahal.Mind do
     calculate_model_score(mind, model, rest, keyword_symbols, score, [second, norm])
   end
 
-  @doc """
-  Convert a list of words into a list of symbols using the MegaHAL mind's
-  dictionary. This will insert words that are not already in the dictionary.
-  """
-  def words_to_symbols(words, mind) do
+  @spec words_to_symbols([String.t()], Mind.t()) :: {Mind.t(), [non_neg_integer()]}
+  defp words_to_symbols(words, mind) do
     Enum.reduce(words, {mind, []}, fn word, {mind, symbols} ->
       {mind, symbol} = dictionary_lookup(word, mind)
       {mind, symbols ++ [symbol]}
@@ -216,8 +211,8 @@ defmodule Megahal.Mind do
     generate_utterances(mind, keyword_symbols, utterances ++ [utterance], remaining - 1)
   end
 
-  @spec rewrite(Mind.t(), [String.t()]) :: {Mind.t(), String.t() | nil}
-  def rewrite(mind, norm_symbols) do
+  @spec rewrite(Mind.t(), [non_neg_integer()]) :: {Mind.t(), String.t() | nil}
+  defp rewrite(mind, norm_symbols) do
     with {:ok, mind, word_symbols} <- norms_to_words(mind, norm_symbols, [], [1, 1], 10) do
       # We've used the case model to rewrite the norms to a words in a way that
       # guarantees that each adjacent pair of words has been previously observed.
@@ -257,11 +252,10 @@ defmodule Megahal.Mind do
   defp norms_to_words(mind, norm_symbols, word_symbols, _context, retries)
        when length(norm_symbols) == length(word_symbols) do
     {mind, id} = brain_lookup([List.last(word_symbols), 1], mind)
-    count = Predictor.count(mind.punc, id)
 
-    cond do
-      count > 0 -> {mind, word_symbols}
-      true -> norms_to_words(mind, norm_symbols, [], [1 | norm_symbols], retries - 1)
+    case Predictor.count(mind.punc, id) do
+      count when count > 0 -> {mind, word_symbols}
+      _ -> norms_to_words(mind, norm_symbols, [], [1 | norm_symbols], retries - 1)
     end
 
     {:ok, mind, word_symbols}
@@ -269,22 +263,18 @@ defmodule Megahal.Mind do
 
   defp norms_to_words(mind, norm_symbols, word_symbols, [prev, norm | rest], retries) do
     {mind, id} = brain_lookup([prev, norm], mind)
-    count = Predictor.count(mind.case, id)
 
-    cond do
-      count > 0 ->
-        word = Predictor.select(mind.case, id, Enum.random(1..count))
+    case Predictor.fetch_random_select(mind.case, id) do
+      {:ok, word} ->
         norms_to_words(mind, norm_symbols, word_symbols ++ [word], [word | rest], retries)
 
-      true ->
+      :error ->
         norms_to_words(mind, norm_symbols, [], [1 | norm_symbols], retries - 1)
     end
   end
 
-  @doc """
-  Generate a reply based on the MegaHAL mind's training.
-  """
-  def generate_reply(mind, keyword_symbols) do
+  @spec generate_reply(Mind.t(), [String.t()]) :: {Mind.t(), [non_neg_integer()]}
+  defp generate_reply(mind, keyword_symbols) do
     case select_keyword(mind, keyword_symbols) do
       nil ->
         {mind, id} = brain_lookup([1, 1], mind)
@@ -299,22 +289,19 @@ defmodule Megahal.Mind do
     end
   end
 
-  def generate_reply(mind, keyword_symbols, keyword) do
+  defp generate_reply(mind, keyword_symbols, keyword) do
     contexts = [[2, keyword], [keyword, 2]]
 
     {contexts, mind} =
       Enum.reduce(contexts, {[], mind}, fn context, {contexts, mind} ->
         {mind, id} = brain_lookup(context, mind)
-        count = Predictor.count(mind.seed, id)
 
-        cond do
-          count > 0 ->
+        case Predictor.fetch_random_select(mind.seed, id) do
+          {:ok, ctx} ->
             index = Enum.find_index(context, &(&1 == 2))
+            {contexts ++ List.replace_at(context, index, ctx), mind}
 
-            {contexts ++ List.replace_at(context, index, Predictor.select(mind.seed, id, count)),
-             mind}
-
-          true ->
+          _ ->
             {contexts, mind}
         end
       end)
@@ -344,21 +331,22 @@ defmodule Megahal.Mind do
     random_walk(model, mind, context, keywords, 0, [], 10)
   end
 
+  # Stop and return no results if we hit an error (0) symbol
   defp random_walk(_model, mind, _context, _keys, 0, _results, 0), do: {mind, []}
+
+  # Stop and return our results if we hit a <fence> (1) symbol
   defp random_walk(_model, mind, _context, _keys, 1, results, 0), do: {mind, results}
 
+  # We got a symbol that isn't 0 or 1, and out of retries so move onto the next context
   defp random_walk(model, mind, [_first, second], keys, symbol, results, 0) do
     random_walk(model, mind, [second, symbol], keys, symbol, results ++ [symbol], 10)
   end
 
   defp random_walk(model, mind, context, keywords, _, results, times) do
     {mind, id} = brain_lookup(context, mind)
-    limit = Enum.random(1..Predictor.count(model, id))
-    symbol = Predictor.select(model, id, limit)
 
-    case Enum.any?(keywords, &(&1 == symbol)) do
-      # Favor a generation that elicits a keyword
-      true ->
+    case Predictor.fetch_random_select(model, id) do
+      {:ok, symbol} ->
         random_walk(
           model,
           mind,
@@ -366,11 +354,12 @@ defmodule Megahal.Mind do
           Enum.filter(keywords, &(&1 == symbol)),
           symbol,
           results,
-          0
+          # Break early by setting retries to 0 if we find a keyword
+          if(symbol in keywords, do: 0, else: times - 1)
         )
 
-      false ->
-        random_walk(model, mind, context, keywords, symbol, results, times - 1)
+      _ ->
+        random_walk(model, mind, context, keywords, 0, results, times - 1)
     end
   end
 
@@ -388,12 +377,6 @@ defmodule Megahal.Mind do
       keywords -> Enum.random(keywords)
     end
   end
-
-  @spec train(Mind.t(), String.t()) :: Mind.t()
-  @doc """
-  Train the MegaHAL mind on a line of text.
-  """
-  def train(mind, line), do: line |> String.trim() |> decompose() |> learn(mind)
 
   defp learn({nil, nil, nil}, mind), do: mind
 
@@ -458,7 +441,7 @@ defmodule Megahal.Mind do
   # The :back model is similar to the :fore model; it simply operates in the
   # opposite direction. This is how the original MegaHAL was able to generate
   # a random sentence guaranteed to contain a keyword; the :fore model filled
-  # in the gaps towards the end of the sentence, and the @back model filled in
+  # in the gaps towards the end of the sentence, and the back model filled in
   # the gaps towards the beginning of the sentence.
   defp update_back(mind, [], [first, second]) do
     {mind, id} = brain_lookup([first, second], mind)
@@ -476,7 +459,7 @@ defmodule Megahal.Mind do
 
   # The previous three models were all learning the sequence of norms, which
   # are capitalised words. When we generate a reply, we want to rewrite it so
-  # MegaHAL doesn't speak in ALL CAPS. The @case model achieves this. For the
+  # MegaHAL doesn't speak in ALL CAPS. The case model achieves this. For the
   # previous word and the current norm it learns what the next word should be.
   defp update_case(mind, [], _), do: mind
 
@@ -505,19 +488,7 @@ defmodule Megahal.Mind do
     end
   end
 
-  @doc """
-  Given a term, look up its ID in the dictionary. If it doesn't exist, add it.
-
-  ## Examples
-
-    iex> mind = Megahal.Mind.new()
-    #Megahal.Mind<seed: 0, fore: 0, back: 0, case: 0, punc: 0, dictionary: 450, brain: 0>
-    iex> {mind, symbol} = Megahal.Mind.dictionary_lookup("hello", mind)
-    iex> mind
-    #Megahal.Mind<seed: 0, fore: 0, back: 0, case: 0, punc: 0, dictionary: 451, brain: 0>
-    iex> symbol
-    450
-  """
+  @doc false
   @spec dictionary_lookup(word :: String.t(), mind :: Mind.t()) :: {Mind.t(), integer()}
   def dictionary_lookup(word, %Mind{dictionary: dict} = mind) do
     case Map.get(dict, word) do
@@ -526,21 +497,8 @@ defmodule Megahal.Mind do
     end
   end
 
+  @doc false
   @spec decompose(String.t()) :: {nil, nil, nil} | {[String.t()], [String.t()], String.t()}
-  @doc """
-  Decompose a line into word-separators, words, and uppercase words.
-
-  Intended primarily for internal use by the Megahal.Mind module.
-
-  ## Examples
-
-    iex> Megahal.Mind.decompose("Hello, world!")
-    {["", ", ", "!"], ["HELLO", "WORLD"], ["Hello", "world"]}
-    iex> Megahal.Mind.decompose("Isn't this neat?")
-    {["", " ", " ", "?"], ["ISN'T", "THIS", "NEAT"], ["Isn't", "this", "neat"]}
-    iex> Megahal.Mind.decompose(" I can't eat the hob-goblin!")
-    {[" ", " ", " ", " ", " ", "!"], ["I", "CAN'T", "EAT", "THE", "HOB-GOBLIN"], ["I", "can't", "eat", "the", "hob-goblin"]}
-  """
   def decompose(""), do: {nil, nil, nil}
 
   def decompose(line) do
