@@ -276,16 +276,8 @@ defmodule Megahal.Mind do
   @spec generate_reply(Mind.t(), [String.t()]) :: {Mind.t(), [non_neg_integer()]}
   defp generate_reply(mind, keyword_symbols) do
     case select_keyword(mind, keyword_symbols) do
-      nil ->
-        {mind, id} = brain_lookup([1, 1], mind)
-
-        case id do
-          0 -> {mind, []}
-          _ -> random_walk(mind.fore, mind, [1, 1], keyword_symbols)
-        end
-
-      keyword ->
-        generate_reply(mind, keyword_symbols, keyword)
+      nil -> random_walk(mind.fore, mind, [1, 1], keyword_symbols)
+      keyword -> generate_reply(mind, keyword_symbols, keyword)
     end
   end
 
